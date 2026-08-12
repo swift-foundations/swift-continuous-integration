@@ -6,7 +6,10 @@ struct ContinuousIntegrationPlanTests {
     @Test
     func ordinaryPushSelectsBuildTierWithLinuxPrimary() throws {
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/feature", event: "push", lintBundle: "standards")
+            ref: "refs/heads/feature",
+            event: "push",
+            lintBundle: "standards"
+        )
         #expect(plan.tier == .build)
         #expect(plan.legs.map(\.id) == ["format", "lint", "swift-linter", "linux-release", "linux-6-4"])
         #expect(plan.gating.map(\.id) == ["format", "lint", "swift-linter", "linux-release"])
@@ -14,9 +17,11 @@ struct ContinuousIntegrationPlanTests {
 
     @Test
     func tagRefAndDispatchAndMainForceFullTier() throws {
-        for (ref, event) in [("refs/tags/1.0.0", "push"),
-                             ("refs/heads/x", "workflow_dispatch"),
-                             ("refs/heads/main", "push")] {
+        for (ref, event) in [
+            ("refs/tags/1.0.0", "push"),
+            ("refs/heads/x", "workflow_dispatch"),
+            ("refs/heads/main", "push"),
+        ] {
             let plan = try ContinuousIntegration.Plan(ref: ref, event: event, lintBundle: "institute")
             #expect(plan.tier == .full, "\(ref)/\(event)")
         }
@@ -24,20 +29,33 @@ struct ContinuousIntegrationPlanTests {
 
     @Test
     func commitTokensSteerTier() throws {
-        #expect(try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", headMessage: "wip [ci full]", event: "push",
-            lintBundle: "standards").tier == .full)
-        #expect(try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", headMessage: "wip [ci build]", event: "workflow_dispatch",
-            lintBundle: "standards").tier == .build)
+        #expect(
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/x",
+                headMessage: "wip [ci full]",
+                event: "push",
+                lintBundle: "standards"
+            ).tier == .full
+        )
+        #expect(
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/x",
+                headMessage: "wip [ci build]",
+                event: "workflow_dispatch",
+                lintBundle: "standards"
+            ).tier == .build
+        )
     }
 
     @Test
     func retiredLintTierRefuses() {
         #expect(throws: ContinuousIntegration.Plan.Error.retiredLintTier) {
             try ContinuousIntegration.Plan(
-                forcedTier: "lint", ref: "refs/heads/x", event: "push",
-                lintBundle: "standards")
+                forcedTier: "lint",
+                ref: "refs/heads/x",
+                event: "push",
+                lintBundle: "standards"
+            )
         }
     }
 
@@ -45,55 +63,97 @@ struct ContinuousIntegrationPlanTests {
     func platformSupportValidation() {
         #expect(throws: ContinuousIntegration.Plan.Error.invalidPlatformFamily("mac")) {
             try ContinuousIntegration.Plan(
-                ref: "refs/heads/x", event: "push", platformSupport: "mac",
-                lintBundle: "standards")
+                ref: "refs/heads/x",
+                event: "push",
+                platformSupport: "mac",
+                lintBundle: "standards"
+            )
         }
         #expect(throws: ContinuousIntegration.Plan.Error.duplicatePlatformFamily("linux")) {
             try ContinuousIntegration.Plan(
-                ref: "refs/heads/x", event: "push", platformSupport: "linux,linux",
-                lintBundle: "standards")
+                ref: "refs/heads/x",
+                event: "push",
+                platformSupport: "linux,linux",
+                lintBundle: "standards"
+            )
         }
         #expect(throws: ContinuousIntegration.Plan.Error.trailingEmptyPlatformFamily("linux,")) {
             try ContinuousIntegration.Plan(
-                ref: "refs/heads/x", event: "push", platformSupport: "linux,",
-                lintBundle: "standards")
+                ref: "refs/heads/x",
+                event: "push",
+                platformSupport: "linux,",
+                lintBundle: "standards"
+            )
         }
         #expect(throws: ContinuousIntegration.Plan.Error.invalidPlatformFamily("")) {
             try ContinuousIntegration.Plan(
-                ref: "refs/heads/x", event: "push", platformSupport: ",linux",
-                lintBundle: "standards")
+                ref: "refs/heads/x",
+                event: "push",
+                platformSupport: ",linux",
+                lintBundle: "standards"
+            )
         }
     }
 
     @Test
     func buildTierPrimarySelectionFollowsPriority() throws {
-        #expect(try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", event: "push", platformSupport: "windows,apple",
-            lintBundle: "standards").legs.map(\.id).contains("windows-release"))
+        #expect(
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/x",
+                event: "push",
+                platformSupport: "windows,apple",
+                lintBundle: "standards"
+            ).legs.map(\.id).contains("windows-release")
+        )
         let appleOnly = try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", event: "push", platformSupport: "apple",
-            lintBundle: "standards")
+            ref: "refs/heads/x",
+            event: "push",
+            platformSupport: "apple",
+            lintBundle: "standards"
+        )
         #expect(appleOnly.legs.map(\.id) == ["format", "lint", "swift-linter", "macos-release"])
     }
 
     @Test
     func fullTierPlatformFilterNarrowsLegs() throws {
         let plan = try ContinuousIntegration.Plan(
-            forcedTier: "full", ref: "refs/heads/x", event: "push",
-            platformSupport: "linux", lintBundle: "standards")
+            forcedTier: "full",
+            ref: "refs/heads/x",
+            event: "push",
+            platformSupport: "linux",
+            lintBundle: "standards"
+        )
         #expect(!plan.legs.map(\.id).contains("macos-release"))
         #expect(!plan.legs.map(\.id).contains("windows-release"))
+        #expect(plan.legs.map(\.id).contains("linux-release"))
+        #expect(plan.legs.map(\.id).contains("linux-6-4"))
+    }
+
+    @Test
+    func theExhaustiveTierIsPlatformFilteredLikeAnyOther() throws {
+        // Opt-in does not exempt a leg from platform identity: a package
+        // whose specification excludes Apple does not gain an Apple leg by
+        // asking for everything.
+        let plan = try ContinuousIntegration.Plan(
+            forcedTier: "exhaustive",
+            ref: "refs/heads/x",
+            event: "push",
+            platformSupport: "linux",
+            lintBundle: "standards"
+        )
         #expect(!plan.legs.map(\.id).contains("apple-simulator-build"))
         #expect(plan.legs.map(\.id).contains("linux-nightly"))
-        #expect(plan.legs.map(\.id).contains("lint-yaml"))
     }
 
     @Test
     func primitivesBundleAppendsAdvisoryLegsInBothTiers() throws {
         for tier in ["build", "full"] {
             let plan = try ContinuousIntegration.Plan(
-                forcedTier: tier, ref: "refs/heads/x", event: "push",
-                lintBundle: "primitives")
+                forcedTier: tier,
+                ref: "refs/heads/x",
+                event: "push",
+                lintBundle: "primitives"
+            )
             #expect(plan.legs.map(\.id).contains("embedded"), Comment(rawValue: tier))
             #expect(!plan.gating.map(\.id).contains("embedded"), Comment(rawValue: tier))
         }
@@ -107,15 +167,99 @@ struct ContinuousIntegrationPlanTests {
     }
 
     @Test
+    func noAutomaticPathReachesTheExhaustiveTier() throws {
+        // The whole point of the tier: cost-bearing advisory legs must not
+        // ride an ordinary push, a pull request, a dispatch, or a merge.
+        for (ref, event) in [
+            ("refs/heads/feature", "push"),
+            ("refs/heads/feature", "pull_request"),
+            ("refs/heads/feature", "workflow_dispatch"),
+            ("refs/heads/main", "push"),
+            ("refs/tags/1.0.0", "push"),
+        ] {
+            let plan = try ContinuousIntegration.Plan(
+                ref: ref,
+                event: event,
+                lintBundle: "primitives"
+            )
+            #expect(plan.tier != .exhaustive, Comment(rawValue: "\(ref)/\(event)"))
+            let ids = Set(plan.legs.map(\.id))
+            for opt in [
+                "linux-nightly", "apple-simulator-build", "embedded-wasm-sdk",
+                "android-build", "static-linux-musl-build",
+            ] {
+                #expect(!ids.contains(opt), Comment(rawValue: "\(ref)/\(event): \(opt)"))
+            }
+        }
+    }
+
+    @Test
+    func exhaustiveTierIsReachedOnlyByAsking() throws {
+        for plan in [
+            try ContinuousIntegration.Plan(
+                forcedTier: "exhaustive",
+                ref: "refs/heads/x",
+                event: "push",
+                lintBundle: "primitives"
+            ),
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/x",
+                headMessage: "wip [ci exhaustive]",
+                event: "push",
+                lintBundle: "primitives"
+            ),
+        ] {
+            #expect(plan.tier == .exhaustive)
+            #expect(
+                Set(plan.legs.map(\.id)).isSuperset(of: [
+                    "linux-nightly", "apple-simulator-build", "embedded-wasm-sdk",
+                    "android-build", "static-linux-musl-build",
+                ])
+            )
+        }
+    }
+
+    @Test
+    func theIntegrationRefNeverDowngradesAnExhaustiveRequest() throws {
+        // main promotes unconditionally, but promotion must not narrow.
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/main",
+            headMessage: "[ci exhaustive]",
+            event: "push",
+            lintBundle: "institute"
+        )
+        #expect(plan.tier == .exhaustive)
+    }
+
+    @Test
+    func embeddedStaysOnEveryTierForPrimitives() throws {
+        // The L1 freestanding invariant is not a cost knob.
+        for tier in ["build", "full", "exhaustive"] {
+            let plan = try ContinuousIntegration.Plan(
+                forcedTier: tier,
+                ref: "refs/heads/x",
+                event: "push",
+                lintBundle: "primitives"
+            )
+            #expect(plan.legs.map(\.id).contains("embedded"), Comment(rawValue: tier))
+        }
+    }
+
+    @Test
     func unchangedPackageContentDropsEveryPackageWorkLeg() throws {
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/main", event: "push", lintBundle: "primitives",
-            packageContentChanged: false)
+            ref: "refs/heads/main",
+            event: "push",
+            lintBundle: "primitives",
+            packageContentChanged: false
+        )
         #expect(!plan.packageContentChanged)
         let ids = Set(plan.legs.map(\.id))
-        for dropped in ["linux-release", "macos-release", "windows-release", "linux-6-4",
-                        "linux-nightly", "apple-simulator-build", "embedded",
-                        "embedded-wasm-sdk", "android-build", "static-linux-musl-build"] {
+        for dropped in [
+            "linux-release", "macos-release", "windows-release", "linux-6-4",
+            "linux-nightly", "apple-simulator-build", "embedded",
+            "embedded-wasm-sdk", "android-build", "static-linux-musl-build",
+        ] {
             #expect(!ids.contains(dropped), Comment(rawValue: dropped))
         }
         // The quality gates and the aggregate's own surface survive: the
@@ -129,8 +273,12 @@ struct ContinuousIntegrationPlanTests {
         // plan; building nothing is the planned outcome here, not a green
         // over nothing, so it must stand down rather than throw.
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", event: "push", platformSupport: "linux",
-            lintBundle: "standards", packageContentChanged: false)
+            ref: "refs/heads/x",
+            event: "push",
+            platformSupport: "linux",
+            lintBundle: "standards",
+            packageContentChanged: false
+        )
         #expect(!plan.gating.contains { $0.buildLeg })
     }
 
@@ -138,8 +286,11 @@ struct ContinuousIntegrationPlanTests {
     func dispatchOverridesAnUnchangedContentClassification() throws {
         // An explicit dispatch is a deliberate request to verify.
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", event: "workflow_dispatch", lintBundle: "standards",
-            packageContentChanged: false)
+            ref: "refs/heads/x",
+            event: "workflow_dispatch",
+            lintBundle: "standards",
+            packageContentChanged: false
+        )
         #expect(plan.packageContentChanged)
         #expect(plan.legs.contains { $0.buildLeg })
     }
@@ -147,13 +298,21 @@ struct ContinuousIntegrationPlanTests {
     @Test
     func deschedulingRemovesTheLegAndRecordsTheReason() throws {
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/main", event: "push", lintBundle: "institute",
-            deschedule: ["linux-nightly": "nightly-exception-expired"])
+            forcedTier: "exhaustive",
+            ref: "refs/heads/main",
+            event: "push",
+            lintBundle: "institute",
+            deschedule: ["linux-nightly": "nightly-exception-expired"]
+        )
         #expect(!plan.legs.map(\.id).contains("linux-nightly"))
-        #expect(plan.descheduled == [
-            .init(leg: ContinuousIntegration.Leg("linux-nightly"),
-                  reason: "nightly-exception-expired")
-        ])
+        #expect(
+            plan.descheduled == [
+                .init(
+                    leg: ContinuousIntegration.Leg("linux-nightly"),
+                    reason: "nightly-exception-expired"
+                )
+            ]
+        )
     }
 
     @Test
@@ -162,16 +321,21 @@ struct ContinuousIntegrationPlanTests {
         // apple-simulator-build, so a record naming it would assert a
         // removal that did not happen.
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/x", event: "push", lintBundle: "standards",
-            deschedule: ["apple-simulator-build": "some-reason"])
+            ref: "refs/heads/x",
+            event: "push",
+            lintBundle: "standards",
+            deschedule: ["apple-simulator-build": "some-reason"]
+        )
         #expect(plan.descheduled.isEmpty)
     }
 }
 
 @Suite
 struct ContinuousIntegrationAggregateTests {
-    static let participants = ["macos-release", "linux-release", "windows-release",
-                               "format", "lint", "swift-linter"]
+    static let participants = [
+        "macos-release", "linux-release", "windows-release",
+        "format", "lint", "swift-linter",
+    ]
 
     func needs(_ overrides: [String: String]) -> [String: String] {
         var results: [String: String] = [:]
@@ -183,11 +347,16 @@ struct ContinuousIntegrationAggregateTests {
     func selectedTierPasses() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+            ]),
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
-            requireFullTier: false)
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
+            requireFullTier: false
+        )
         #expect(verdict.pass)
         #expect(verdict.built == ["linux-release"])
     }
@@ -196,37 +365,58 @@ struct ContinuousIntegrationAggregateTests {
     func skippedGatingLegFails() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "skipped", "linux-release": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "skipped", "linux-release": "success",
+            ]),
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
-            requireFullTier: false)
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
+            requireFullTier: false
+        )
         #expect(!verdict.pass)
-        #expect(verdict.findings.contains(
-            .selectedLegNotSuccessful(job: "swift-linter", result: "skipped")))
+        #expect(
+            verdict.findings.contains(
+                .selectedLegNotSuccessful(job: "swift-linter", result: "skipped")
+            )
+        )
     }
 
     @Test
     func unselectedLegThatRanFails() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success",
-                            "macos-release": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+                "macos-release": "success",
+            ]),
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
-            requireFullTier: false)
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
+            requireFullTier: false
+        )
         #expect(!verdict.pass)
-        #expect(verdict.findings.contains(
-            .unselectedLegRan(job: "macos-release", result: "success")))
+        #expect(
+            verdict.findings.contains(
+                .unselectedLegRan(job: "macos-release", result: "success")
+            )
+        )
     }
 
     @Test
     func planFailureEmptyGatingEmptySubjectAllFail() {
         let verdict = ContinuousIntegration.AggregateVerdict(
-            planResult: "failure", results: needs([:]), gating: [],
-            subjectRepository: "", subjectSha: "", tier: "",
-            requireFullTier: false)
+            planResult: "failure",
+            results: needs([:]),
+            gating: [],
+            subjectRepository: "",
+            subjectSha: "",
+            tier: "",
+            requireFullTier: false
+        )
         #expect(!verdict.pass)
         #expect(verdict.findings.contains(.planDidNotSucceed(result: "failure")))
         #expect(verdict.findings.contains(.emptyGating))
@@ -238,11 +428,16 @@ struct ContinuousIntegrationAggregateTests {
     func mainRequiresFullTier() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+            ]),
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
-            requireFullTier: true)
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
+            requireFullTier: true
+        )
         #expect(!verdict.pass)
         #expect(verdict.findings.contains(.fullTierRequired(got: "build")))
     }
@@ -251,11 +446,16 @@ struct ContinuousIntegrationAggregateTests {
     func lintOnlySuccessWithoutBuildFails() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success",
+            ]),
             gating: ["format", "lint", "swift-linter"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
-            requireFullTier: false)
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
+            requireFullTier: false
+        )
         #expect(!verdict.pass)
         #expect(verdict.findings.contains(.nothingBuilt))
     }
@@ -266,16 +466,24 @@ struct ContinuousIntegrationAggregateTests {
         // plan said this leg would not run, and it did.
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success"])
-                .merging(["linux-nightly": "failure"]) { _, new in new },
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+            ])
+            .merging(["linux-nightly": "failure"]) { _, new in new },
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
             requireFullTier: false,
-            descheduled: ["linux-nightly"])
+            descheduled: ["linux-nightly"]
+        )
         #expect(!verdict.pass)
-        #expect(verdict.findings.contains(
-            .descheduledLegRan(job: "linux-nightly", result: "failure")))
+        #expect(
+            verdict.findings.contains(
+                .descheduledLegRan(job: "linux-nightly", result: "failure")
+            )
+        )
     }
 
     @Test
@@ -284,12 +492,17 @@ struct ContinuousIntegrationAggregateTests {
         // obligation, whatever the caller's policy claims.
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+            ]),
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
             requireFullTier: false,
-            descheduled: ["windows-release"])
+            descheduled: ["windows-release"]
+        )
         #expect(!verdict.pass)
         #expect(verdict.findings.contains(.descheduledGatingLeg(job: "windows-release")))
     }
@@ -298,13 +511,18 @@ struct ContinuousIntegrationAggregateTests {
     func descheduledLegThatSkippedIsAccountedFor() {
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success", "linux-release": "success"])
-                .merging(["linux-nightly": "skipped"]) { _, new in new },
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success", "linux-release": "success",
+            ])
+            .merging(["linux-nightly": "skipped"]) { _, new in new },
             gating: ["format", "lint", "swift-linter", "linux-release"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
             requireFullTier: false,
-            descheduled: ["linux-nightly"])
+            descheduled: ["linux-nightly"]
+        )
         #expect(verdict.pass)
     }
 
@@ -313,12 +531,17 @@ struct ContinuousIntegrationAggregateTests {
         // The one case where building nothing is the planned outcome.
         let verdict = ContinuousIntegration.AggregateVerdict(
             planResult: "success",
-            results: needs(["format": "success", "lint": "success",
-                            "swift-linter": "success"]),
+            results: needs([
+                "format": "success", "lint": "success",
+                "swift-linter": "success",
+            ]),
             gating: ["format", "lint", "swift-linter"],
-            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            subjectRepository: "o/r",
+            subjectSha: "abc",
+            tier: "build",
             requireFullTier: false,
-            packageContentChanged: false)
+            packageContentChanged: false
+        )
         #expect(verdict.pass)
         #expect(!verdict.findings.contains(.nothingBuilt))
     }
@@ -328,7 +551,8 @@ struct ContinuousIntegrationAggregateTests {
         #expect(ContinuousIntegration.Requirement.checkContext == "ci / matrix / ci-ok")
         let table = ContinuousIntegration.Requirement.table(
             participants: ["plan"] + Self.participants,
-            gating: [ContinuousIntegration.Leg("format"), ContinuousIntegration.Leg("linux-release")])
+            gating: [ContinuousIntegration.Leg("format"), ContinuousIntegration.Leg("linux-release")]
+        )
         #expect(table.count == 6)
         #expect(table.first { $0.job == "format" }?.expectation == .success)
         #expect(table.first { $0.job == "macos-release" }?.expectation == .skipped)
