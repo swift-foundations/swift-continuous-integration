@@ -105,6 +105,67 @@ struct ContinuousIntegrationPlanTests {
             try ContinuousIntegration.Plan(ref: "refs/heads/x", event: "push", lintBundle: "web")
         }
     }
+
+    @Test
+    func unchangedPackageContentDropsEveryPackageWorkLeg() throws {
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/main", event: "push", lintBundle: "primitives",
+            packageContentChanged: false)
+        #expect(!plan.packageContentChanged)
+        let ids = Set(plan.legs.map(\.id))
+        for dropped in ["linux-release", "macos-release", "windows-release", "linux-6-4",
+                        "linux-nightly", "apple-simulator-build", "embedded",
+                        "embedded-wasm-sdk", "android-build", "static-linux-musl-build"] {
+            #expect(!ids.contains(dropped), Comment(rawValue: dropped))
+        }
+        // The quality gates and the aggregate's own surface survive: the
+        // narrowing is of package work, not of the run.
+        #expect(ids.isSuperset(of: ["format", "lint", "swift-linter"]))
+    }
+
+    @Test
+    func unchangedPackageContentStandsDownTheBuildLegGuard() throws {
+        // With every build leg dropped the guard would otherwise refuse the
+        // plan; building nothing is the planned outcome here, not a green
+        // over nothing, so it must stand down rather than throw.
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/x", event: "push", platformSupport: "linux",
+            lintBundle: "standards", packageContentChanged: false)
+        #expect(!plan.gating.contains { $0.buildLeg })
+    }
+
+    @Test
+    func dispatchOverridesAnUnchangedContentClassification() throws {
+        // An explicit dispatch is a deliberate request to verify.
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/x", event: "workflow_dispatch", lintBundle: "standards",
+            packageContentChanged: false)
+        #expect(plan.packageContentChanged)
+        #expect(plan.legs.contains { $0.buildLeg })
+    }
+
+    @Test
+    func deschedulingRemovesTheLegAndRecordsTheReason() throws {
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/main", event: "push", lintBundle: "institute",
+            deschedule: ["linux-nightly": "nightly-exception-expired"])
+        #expect(!plan.legs.map(\.id).contains("linux-nightly"))
+        #expect(plan.descheduled == [
+            .init(leg: ContinuousIntegration.Leg("linux-nightly"),
+                  reason: "nightly-exception-expired")
+        ])
+    }
+
+    @Test
+    func deschedulingALegThisRunNeverSelectedRecordsNothing() throws {
+        // Absent is not descheduled. The build tier never selects
+        // apple-simulator-build, so a record naming it would assert a
+        // removal that did not happen.
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/x", event: "push", lintBundle: "standards",
+            deschedule: ["apple-simulator-build": "some-reason"])
+        #expect(plan.descheduled.isEmpty)
+    }
 }
 
 @Suite
@@ -197,6 +258,69 @@ struct ContinuousIntegrationAggregateTests {
             requireFullTier: false)
         #expect(!verdict.pass)
         #expect(verdict.findings.contains(.nothingBuilt))
+    }
+
+    @Test
+    func descheduledLegThatRanFails() {
+        // The descheduling record and the execution graph disagree: the
+        // plan said this leg would not run, and it did.
+        let verdict = ContinuousIntegration.AggregateVerdict(
+            planResult: "success",
+            results: needs(["format": "success", "lint": "success",
+                            "swift-linter": "success", "linux-release": "success"])
+                .merging(["linux-nightly": "failure"]) { _, new in new },
+            gating: ["format", "lint", "swift-linter", "linux-release"],
+            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            requireFullTier: false,
+            descheduled: ["linux-nightly"])
+        #expect(!verdict.pass)
+        #expect(verdict.findings.contains(
+            .descheduledLegRan(job: "linux-nightly", result: "failure")))
+    }
+
+    @Test
+    func descheduledGatingLegIsRefused() {
+        // Advisory-class descheduling must never account for a gating
+        // obligation, whatever the caller's policy claims.
+        let verdict = ContinuousIntegration.AggregateVerdict(
+            planResult: "success",
+            results: needs(["format": "success", "lint": "success",
+                            "swift-linter": "success", "linux-release": "success"]),
+            gating: ["format", "lint", "swift-linter", "linux-release"],
+            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            requireFullTier: false,
+            descheduled: ["windows-release"])
+        #expect(!verdict.pass)
+        #expect(verdict.findings.contains(.descheduledGatingLeg(job: "windows-release")))
+    }
+
+    @Test
+    func descheduledLegThatSkippedIsAccountedFor() {
+        let verdict = ContinuousIntegration.AggregateVerdict(
+            planResult: "success",
+            results: needs(["format": "success", "lint": "success",
+                            "swift-linter": "success", "linux-release": "success"])
+                .merging(["linux-nightly": "skipped"]) { _, new in new },
+            gating: ["format", "lint", "swift-linter", "linux-release"],
+            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            requireFullTier: false,
+            descheduled: ["linux-nightly"])
+        #expect(verdict.pass)
+    }
+
+    @Test
+    func unchangedPackageContentSuppressesNothingBuilt() {
+        // The one case where building nothing is the planned outcome.
+        let verdict = ContinuousIntegration.AggregateVerdict(
+            planResult: "success",
+            results: needs(["format": "success", "lint": "success",
+                            "swift-linter": "success"]),
+            gating: ["format", "lint", "swift-linter"],
+            subjectRepository: "o/r", subjectSha: "abc", tier: "build",
+            requireFullTier: false,
+            packageContentChanged: false)
+        #expect(verdict.pass)
+        #expect(!verdict.findings.contains(.nothingBuilt))
     }
 
     @Test
