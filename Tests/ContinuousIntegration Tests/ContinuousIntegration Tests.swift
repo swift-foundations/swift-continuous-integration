@@ -83,9 +83,20 @@ struct ContinuousIntegrationPlanTests {
             platformSupport: "linux", lintBundle: "standards")
         #expect(!plan.legs.map(\.id).contains("macos-release"))
         #expect(!plan.legs.map(\.id).contains("windows-release"))
+        #expect(plan.legs.map(\.id).contains("linux-release"))
+        #expect(plan.legs.map(\.id).contains("linux-6-4"))
+    }
+
+    @Test
+    func theExhaustiveTierIsPlatformFilteredLikeAnyOther() throws {
+        // Opt-in does not exempt a leg from platform identity: a package
+        // whose specification excludes Apple does not gain an Apple leg by
+        // asking for everything.
+        let plan = try ContinuousIntegration.Plan(
+            forcedTier: "exhaustive", ref: "refs/heads/x", event: "push",
+            platformSupport: "linux", lintBundle: "standards")
         #expect(!plan.legs.map(\.id).contains("apple-simulator-build"))
         #expect(plan.legs.map(\.id).contains("linux-nightly"))
-        #expect(plan.legs.map(\.id).contains("lint-yaml"))
     }
 
     @Test
@@ -103,6 +114,64 @@ struct ContinuousIntegrationPlanTests {
     func invalidLintBundleRefuses() {
         #expect(throws: ContinuousIntegration.Plan.Error.invalidLintBundle("web")) {
             try ContinuousIntegration.Plan(ref: "refs/heads/x", event: "push", lintBundle: "web")
+        }
+    }
+
+    @Test
+    func noAutomaticPathReachesTheExhaustiveTier() throws {
+        // The whole point of the tier: cost-bearing advisory legs must not
+        // ride an ordinary push, a pull request, a dispatch, or a merge.
+        for (ref, event) in [("refs/heads/feature", "push"),
+                             ("refs/heads/feature", "pull_request"),
+                             ("refs/heads/feature", "workflow_dispatch"),
+                             ("refs/heads/main", "push"),
+                             ("refs/tags/1.0.0", "push")] {
+            let plan = try ContinuousIntegration.Plan(
+                ref: ref, event: event, lintBundle: "primitives")
+            #expect(plan.tier != .exhaustive, Comment(rawValue: "\(ref)/\(event)"))
+            let ids = Set(plan.legs.map(\.id))
+            for opt in ["linux-nightly", "apple-simulator-build", "embedded-wasm-sdk",
+                        "android-build", "static-linux-musl-build"] {
+                #expect(!ids.contains(opt), Comment(rawValue: "\(ref)/\(event): \(opt)"))
+            }
+        }
+    }
+
+    @Test
+    func exhaustiveTierIsReachedOnlyByAsking() throws {
+        for plan in [
+            try ContinuousIntegration.Plan(
+                forcedTier: "exhaustive", ref: "refs/heads/x", event: "push",
+                lintBundle: "primitives"),
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/x", headMessage: "wip [ci exhaustive]", event: "push",
+                lintBundle: "primitives"),
+        ] {
+            #expect(plan.tier == .exhaustive)
+            #expect(Set(plan.legs.map(\.id)).isSuperset(of: [
+                "linux-nightly", "apple-simulator-build", "embedded-wasm-sdk",
+                "android-build", "static-linux-musl-build",
+            ]))
+        }
+    }
+
+    @Test
+    func theIntegrationRefNeverDowngradesAnExhaustiveRequest() throws {
+        // main promotes unconditionally, but promotion must not narrow.
+        let plan = try ContinuousIntegration.Plan(
+            ref: "refs/heads/main", headMessage: "[ci exhaustive]", event: "push",
+            lintBundle: "institute")
+        #expect(plan.tier == .exhaustive)
+    }
+
+    @Test
+    func embeddedStaysOnEveryTierForPrimitives() throws {
+        // The L1 freestanding invariant is not a cost knob.
+        for tier in ["build", "full", "exhaustive"] {
+            let plan = try ContinuousIntegration.Plan(
+                forcedTier: tier, ref: "refs/heads/x", event: "push",
+                lintBundle: "primitives")
+            #expect(plan.legs.map(\.id).contains("embedded"), Comment(rawValue: tier))
         }
     }
 
@@ -147,7 +216,8 @@ struct ContinuousIntegrationPlanTests {
     @Test
     func deschedulingRemovesTheLegAndRecordsTheReason() throws {
         let plan = try ContinuousIntegration.Plan(
-            ref: "refs/heads/main", event: "push", lintBundle: "institute",
+            forcedTier: "exhaustive", ref: "refs/heads/main", event: "push",
+            lintBundle: "institute",
             deschedule: ["linux-nightly": "nightly-exception-expired"])
         #expect(!plan.legs.map(\.id).contains("linux-nightly"))
         #expect(plan.descheduled == [

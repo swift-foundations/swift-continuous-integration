@@ -57,15 +57,29 @@ extension ContinuousIntegration {
 
         static let fullTierLegs = [
             "format", "lint", "swift-linter", "linux-release",
-            "macos-release", "windows-release", "linux-nightly", "linux-6-4",
-            "apple-simulator-build", "lint-yaml", "lint-broken-symlink",
-            "lint-license-header", "lint-test-support-spine",
+            "macos-release", "windows-release", "linux-6-4",
             "advisory-summary",
         ]
 
-        static let primitivesAdvisoryLegs = [
-            "embedded", "embedded-wasm-sdk", "android-build",
-            "static-linux-musl-build",
+        /// Legs that run only when the exhaustive tier is asked for.
+        ///
+        /// Each is advisory, and each costs a toolchain or SDK install per
+        /// run. Scheduling them on every push spends that cost on legs
+        /// that gate nothing; scheduling them on merge would make "opt-in"
+        /// a label rather than a fact.
+        static let exhaustiveTierLegs = [
+            "linux-nightly", "apple-simulator-build",
+        ]
+
+        /// The L1 embedded invariant, scheduled on every tier for the
+        /// primitives bundle: a package that cannot build freestanding is
+        /// not a primitive, and that is a property worth failing fast on.
+        static let primitivesAdvisoryLegs = ["embedded"]
+
+        /// The primitives cross-compile legs, exhaustive-only for the same
+        /// reason as ``exhaustiveTierLegs``: each installs an SDK.
+        static let primitivesExhaustiveLegs = [
+            "embedded-wasm-sdk", "android-build", "static-linux-musl-build",
         ]
 
         /// Classifies and plans one run. Parameter semantics equal the
@@ -105,15 +119,25 @@ extension ContinuousIntegration {
             case "lint": throw .retiredLintTier
             case "build": tier = .build
             case "full": tier = .full
+            case "exhaustive": tier = .exhaustive
             default: throw .unknownForcedTier(forcedTier)
             }
+            // `[ci exhaustive]` is tested before the automatic promotions
+            // below, because those would otherwise settle on `.full` first
+            // and silently drop the extra legs that were asked for.
+            if tier == nil, headMessage.contains("[ci exhaustive]") { tier = .exhaustive }
             if tier == nil, ref.hasPrefix("refs/tags/") { tier = .full }
             if tier == nil {
                 if headMessage.contains("[ci full]") { tier = .full }
                 else if headMessage.contains("[ci build]") { tier = .build }
             }
             if tier == nil, event == "workflow_dispatch" { tier = .full }
-            if ref == "refs/heads/main" { tier = .full }
+            // The integration ref promotes unconditionally, as before —
+            // a caller cannot narrow its own merge verification. The one
+            // exception is a tier that is already wider: promoting
+            // exhaustive to full would be a downgrade wearing the name of
+            // a promotion.
+            if ref == "refs/heads/main", tier != .exhaustive { tier = .full }
             let selected = tier ?? .build
             self.tier = selected
             // An explicit dispatch is a deliberate request to verify, so it
@@ -137,9 +161,12 @@ extension ContinuousIntegration {
                 legIds = ["format", "lint", "swift-linter", primary, "linux-6-4"]
             case .full:
                 legIds = Self.fullTierLegs
+            case .exhaustive:
+                legIds = Self.fullTierLegs + Self.exhaustiveTierLegs
             }
             if lintBundle == "primitives" {
                 legIds += Self.primitivesAdvisoryLegs
+                if selected == .exhaustive { legIds += Self.primitivesExhaustiveLegs }
             }
             if !packageContentChanged {
                 legIds.removeAll { Leg($0).buildLeg || Self.packageWorkLegs.contains($0) }
