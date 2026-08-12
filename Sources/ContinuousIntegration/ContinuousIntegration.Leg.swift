@@ -30,8 +30,9 @@ extension ContinuousIntegration {
         public var gating: Bool {
             switch id {
             case "format", "lint", "swift-linter",
-                 "macos-release", "linux-release", "windows-release":
+                "macos-release", "linux-release", "windows-release":
                 true
+
             default:
                 false
             }

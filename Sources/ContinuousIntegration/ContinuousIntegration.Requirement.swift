@@ -22,13 +22,15 @@ extension ContinuousIntegration {
         /// The requirement table for one aggregate: every participating
         /// job (ci-ok's needs minus plan) against the plan's gating set.
         public static func table(
-            participants: [String], gating: [Leg]
+            participants: [String],
+            gating: [Leg]
         ) -> [Requirement] {
             let gatingIds = Set(gating.map(\.id))
             return participants.filter { $0 != "plan" }.map { job in
                 Requirement(
                     job: job,
-                    expectation: gatingIds.contains(job) ? .success : .skipped)
+                    expectation: gatingIds.contains(job) ? .success : .skipped
+                )
             }
         }
     }

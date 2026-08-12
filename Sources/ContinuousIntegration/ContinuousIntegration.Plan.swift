@@ -128,8 +128,7 @@ extension ContinuousIntegration {
             if tier == nil, headMessage.contains("[ci exhaustive]") { tier = .exhaustive }
             if tier == nil, ref.hasPrefix("refs/tags/") { tier = .full }
             if tier == nil {
-                if headMessage.contains("[ci full]") { tier = .full }
-                else if headMessage.contains("[ci build]") { tier = .build }
+                if headMessage.contains("[ci full]") { tier = .full } else if headMessage.contains("[ci build]") { tier = .build }
             }
             if tier == nil, event == "workflow_dispatch" { tier = .full }
             // The integration ref promotes unconditionally, as before —
@@ -159,8 +158,10 @@ extension ContinuousIntegration {
                     throw .noRecognizedPlatformFamily(platformSupport)
                 }
                 legIds = ["format", "lint", "swift-linter", primary, "linux-6-4"]
+
             case .full:
                 legIds = Self.fullTierLegs
+
             case .exhaustive:
                 legIds = Self.fullTierLegs + Self.exhaustiveTierLegs
             }
@@ -208,14 +209,16 @@ extension ContinuousIntegration {
                 // (Its per-token loop sees the empty token first; the
                 // dedicated case exists for the diagnostic, matched here.)
                 if platformSupport.dropLast().split(
-                    separator: ",", omittingEmptySubsequences: false
+                    separator: ",",
+                    omittingEmptySubsequences: false
                 ).allSatisfy({ ["apple", "linux", "windows"].contains(String($0)) }) {
                     throw .trailingEmptyPlatformFamily(platformSupport)
                 }
             }
             var seen: Set<Leg.Family> = []
             for token in platformSupport.split(
-                separator: ",", omittingEmptySubsequences: false
+                separator: ",",
+                omittingEmptySubsequences: false
             ) {
                 guard let family = Leg.Family(rawValue: String(token)) else {
                     throw .invalidPlatformFamily(String(token))
