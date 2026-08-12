@@ -11,6 +11,13 @@ extension ContinuousIntegration {
             case selectedLegNotSuccessful(job: String, result: String)
             case unselectedLegRan(job: String, result: String)
             case nothingBuilt
+            /// A leg the plan descheduled with a reason nevertheless ran —
+            /// the descheduling record and the execution graph disagree.
+            case descheduledLegRan(job: String, result: String)
+            /// The plan's descheduled record names a gating leg. Advisory-
+            /// class descheduling must never be able to account for a
+            /// gating obligation.
+            case descheduledGatingLeg(job: String)
         }
 
         public let pass: Bool
@@ -25,6 +32,14 @@ extension ContinuousIntegration {
         ///   - subject: the plan-resolved subject; nil/empty refuses.
         ///   - tier: the planned tier string.
         ///   - requireFullTier: true on the main integration ref.
+        ///   - packageContentChanged: false when the plan selected no
+        ///     package build work, which is the one case where building
+        ///     nothing is the planned outcome rather than a green over
+        ///     nothing.
+        ///   - descheduled: leg ids the plan removed with a typed reason.
+        ///     Audited as the third state — accounted-for-with-reason —
+        ///     distinct from scheduled and absent: each must have skipped,
+        ///     and none may be gating.
         public init(
             planResult: String,
             results: [String: String],
@@ -32,7 +47,9 @@ extension ContinuousIntegration {
             subjectRepository: String,
             subjectSha: String,
             tier: String,
-            requireFullTier: Bool
+            requireFullTier: Bool,
+            packageContentChanged: Bool = true,
+            descheduled: [String] = []
         ) {
             var findings: [Finding] = []
             if planResult != "success" {
@@ -49,6 +66,14 @@ extension ContinuousIntegration {
             }
             var built: [String] = []
             let gatingSet = Set(gating)
+            for job in descheduled.sorted() {
+                if gatingSet.contains(job) || ContinuousIntegration.Leg(job).gating {
+                    findings.append(.descheduledGatingLeg(job: job))
+                }
+                if let result = results[job], result != "skipped" {
+                    findings.append(.descheduledLegRan(job: job, result: result))
+                }
+            }
             for job in results.keys.sorted() where job != "plan" {
                 let result = results[job]!
                 let expected = gatingSet.contains(job) ? "success" : "skipped"
@@ -63,7 +88,7 @@ extension ContinuousIntegration {
                     built.append(job)
                 }
             }
-            if built.isEmpty {
+            if packageContentChanged && built.isEmpty {
                 findings.append(.nothingBuilt)
             }
             self.findings = findings
