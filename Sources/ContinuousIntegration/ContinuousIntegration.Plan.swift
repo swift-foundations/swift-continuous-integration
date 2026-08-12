@@ -28,8 +28,44 @@ extension ContinuousIntegration {
             }
         }
 
+        /// One leg the plan removed from `legs` with a stated reason —
+        /// the third audited state beside scheduled and absent (ruled
+        /// 2026-08-10, .github#488). Descheduling is typed, never silent:
+        /// ci-ok receives this list and verifies each entry actually
+        /// skipped, so a descheduled leg is distinguishable in the audit
+        /// from a platform-filter drop or a plan defect
+        /// (VALIDATOR-DISCIPLINE §3).
+        ///
+        /// The reason vocabulary is open. The mechanism — that a caller
+        /// may withdraw a leg it would otherwise schedule, and that the
+        /// withdrawal is recorded rather than implied — is vendor-neutral
+        /// and lives here; which policies deschedule, and what they call
+        /// themselves, belongs to the policy layer that holds the
+        /// exception (for the Swift Institute, the nightly and
+        /// release-floor exceptions in
+        /// swift-institute/institute-continuous-integration).
+        public struct Descheduled: Sendable, Equatable {
+            public struct Reason: RawRepresentable, Sendable, Equatable, Hashable {
+                public let rawValue: String
+
+                public init(rawValue: String) {
+                    self.rawValue = rawValue
+                }
+            }
+
+            public let leg: Leg
+            public let reason: Reason
+
+            public init(leg: Leg, reason: Reason) {
+                self.leg = leg
+                self.reason = reason
+            }
+        }
+
         public let tier: Tier
         public let legs: [Leg]
+        public let descheduled: [Descheduled]
+        public let packageContentChanged: Bool
         public var gating: [Leg] { legs.filter(\.gating) }
 
         static let fullTierLegs = [
@@ -51,13 +87,24 @@ extension ContinuousIntegration {
         /// message (empty on PR events); `event` = the event name;
         /// `platformSupport` = the comma-separated family list;
         /// `lintBundle` = primitives|standards|institute.
+        /// - Parameter packageContentChanged: whether this run's diff can
+        ///   affect package work. `false` narrows the plan to the legs that
+        ///   read no package content; `workflow_dispatch` always forces it
+        ///   true, because a manual run is a request to build.
+        /// - Parameter descheduling: legs a policy layer withdraws from
+        ///   this run, each with its reason. Applied after the platform
+        ///   filter, so a record names only a leg this run would otherwise
+        ///   have scheduled; a leg the tier or platform filter already
+        ///   excluded is absent, not descheduled.
         public init(
             forcedTier: String = "",
             ref: String,
             headMessage: String = "",
             event: String,
             platformSupport: String = "",
-            lintBundle: String
+            lintBundle: String,
+            packageContentChanged: Bool = true,
+            descheduling: [Descheduled] = []
         ) throws(Error) {
             guard ["primitives", "standards", "institute"].contains(lintBundle) else {
                 throw .invalidLintBundle(lintBundle)
@@ -81,6 +128,8 @@ extension ContinuousIntegration {
             if ref == "refs/heads/main" { tier = .full }
             let selected = tier ?? .build
             self.tier = selected
+            let packageContentChanged = packageContentChanged || event == "workflow_dispatch"
+            self.packageContentChanged = packageContentChanged
 
             var legIds: [String]
             switch selected {
@@ -102,14 +151,32 @@ extension ContinuousIntegration {
             if lintBundle == "primitives" {
                 legIds += Self.primitivesAdvisoryLegs
             }
+            if !packageContentChanged {
+                legIds.removeAll {
+                    Leg($0).buildLeg
+                        || [
+                            "linux-6-4", "linux-nightly", "apple-simulator-build", "embedded",
+                            "embedded-wasm-sdk", "android-build", "static-linux-musl-build",
+                        ].contains($0)
+                }
+            }
             if !families.isEmpty {
                 legIds = legIds.filter { id in
                     guard let family = Leg(id).family else { return true }
                     return families.contains(family)
                 }
             }
+            // Descheduling runs after the platform filter so the record
+            // names only a leg this run would otherwise have scheduled.
+            var descheduled: [Descheduled] = []
+            for request in descheduling where legIds.contains(request.leg.id) {
+                legIds.removeAll { $0 == request.leg.id }
+                descheduled.append(request)
+            }
+            self.descheduled = descheduled
             let legs = legIds.map(Leg.init)
-            guard legs.contains(where: { $0.gating && $0.buildLeg }) else {
+            guard !packageContentChanged || legs.contains(where: { $0.gating && $0.buildLeg })
+            else {
                 throw .noGatingBuildLeg(tier: selected, platformSupport: platformSupport)
             }
             self.legs = legs
