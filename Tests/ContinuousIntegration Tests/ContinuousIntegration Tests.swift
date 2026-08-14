@@ -11,7 +11,9 @@ struct ContinuousIntegrationPlanTests {
             lintBundle: "standards"
         )
         #expect(plan.tier == .build)
-        #expect(plan.legs.map(\.id) == ["format", "lint", "swift-linter", "linux-release", "linux-6-4"])
+        #expect(
+            plan.legs.map(\.id) == ["format", "lint", "swift-linter", "linux-release", "linux-6-4"]
+        )
         #expect(plan.gating.map(\.id) == ["format", "lint", "swift-linter", "linux-release"])
     }
 
@@ -22,7 +24,11 @@ struct ContinuousIntegrationPlanTests {
             ("refs/heads/x", "workflow_dispatch"),
             ("refs/heads/main", "push"),
         ] {
-            let plan = try ContinuousIntegration.Plan(ref: ref, event: event, lintBundle: "institute")
+            let plan = try ContinuousIntegration.Plan(
+                ref: ref,
+                event: event,
+                lintBundle: "institute"
+            )
             #expect(plan.tier == .full, "\(ref)/\(event)")
         }
     }
@@ -623,7 +629,10 @@ struct ContinuousIntegrationAggregateTests {
         #expect(ContinuousIntegration.Requirement.checkContext == "ci / matrix / ci-ok")
         let table = ContinuousIntegration.Requirement.table(
             participants: ["plan"] + Self.participants,
-            gating: [ContinuousIntegration.Leg("format"), ContinuousIntegration.Leg("linux-release")]
+            gating: [
+                ContinuousIntegration.Leg("format"),
+                ContinuousIntegration.Leg("linux-release"),
+            ]
         )
         #expect(table.count == 6)
         #expect(table.first { $0.job == "format" }?.expectation == .success)

@@ -128,7 +128,11 @@ extension ContinuousIntegration {
             if tier == nil, headMessage.contains("[ci exhaustive]") { tier = .exhaustive }
             if tier == nil, ref.hasPrefix("refs/tags/") { tier = .full }
             if tier == nil {
-                if headMessage.contains("[ci full]") { tier = .full } else if headMessage.contains("[ci build]") { tier = .build }
+                if headMessage.contains("[ci full]") {
+                    tier = .full
+                } else if headMessage.contains("[ci build]") {
+                    tier = .build
+                }
             }
             if tier == nil, event == "workflow_dispatch" { tier = .full }
             // The integration ref promotes unconditionally, as before —
