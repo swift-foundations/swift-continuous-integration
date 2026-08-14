@@ -128,7 +128,11 @@ extension ContinuousIntegration {
             if tier == nil, headMessage.contains("[ci exhaustive]") { tier = .exhaustive }
             if tier == nil, ref.hasPrefix("refs/tags/") { tier = .full }
             if tier == nil {
-                if headMessage.contains("[ci full]") { tier = .full } else if headMessage.contains("[ci build]") { tier = .build }
+                if headMessage.contains("[ci full]") {
+                    tier = .full
+                } else if headMessage.contains("[ci build]") {
+                    tier = .build
+                }
             }
             if tier == nil, event == "workflow_dispatch" { tier = .full }
             // The integration ref promotes unconditionally, as before —
@@ -137,11 +141,23 @@ extension ContinuousIntegration {
             // exhaustive to full would be a downgrade wearing the name of
             // a promotion.
             if ref == "refs/heads/main", tier != .exhaustive { tier = .full }
+            // A merge group asks exactly the question the integration ref
+            // answers — is this candidate merge result fit for main? —
+            // ahead of the push, so it promotes the same way: to the full
+            // tier, unconditionally, with the same single exception for a
+            // tier that is already wider. (A distinct prospective tier is
+            // a later programme; today the selection is identical.)
+            if event == "merge_group", tier != .exhaustive { tier = .full }
             let selected = tier ?? .build
             self.tier = selected
             // An explicit dispatch is a deliberate request to verify, so it
             // never inherits a no-work classification from the event diff.
-            let packageContentChanged = packageContentChanged || event == "workflow_dispatch"
+            // A merge group is the merge verification itself, so the same
+            // holds: it never narrows to a no-work plan.
+            let packageContentChanged =
+                packageContentChanged
+                || event == "workflow_dispatch"
+                || event == "merge_group"
             self.packageContentChanged = packageContentChanged
 
             var legIds: [String]
