@@ -6,7 +6,8 @@ extension ContinuousIntegration {
         /// pushes and pull requests.
         case build
         /// The merge path: the whole gating platform contract. Reached by
-        /// the integration ref, an explicit dispatch, or `[ci full]`.
+        /// the integration ref, a merge group, an explicit dispatch, or
+        /// `[ci full]`.
         case full
         /// Everything the fleet can run, including legs whose cost or
         /// stability keeps them off every automatic path. Never reached by

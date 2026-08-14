@@ -27,6 +27,78 @@ struct ContinuousIntegrationPlanTests {
         }
     }
 
+    /// One fixture per event class, so a classification change to any one
+    /// of the four is a visible test change here and never a silent
+    /// side effect of another event's promotion path.
+    @Test
+    func eventClassificationFixtures() throws {
+        for (ref, event, expected) in [
+            ("refs/heads/feature", "pull_request", ContinuousIntegration.Tier.build),
+            ("refs/heads/gh-readonly-queue/main/pr-7-0123", "merge_group", .full),
+            ("refs/heads/feature", "push", .build),
+            ("refs/heads/feature", "workflow_dispatch", .full),
+        ] {
+            let plan = try ContinuousIntegration.Plan(
+                ref: ref,
+                event: event,
+                lintBundle: "institute"
+            )
+            #expect(plan.tier == expected, "\(ref)/\(event)")
+        }
+    }
+
+    /// The merge group selects exactly the current full tier: same legs,
+    /// same gating set. A distinct prospective tier is a later programme;
+    /// until it exists, any divergence here is a defect.
+    @Test
+    func mergeGroupSelectsTheIdenticalFullTier() throws {
+        let mergeGroup = try ContinuousIntegration.Plan(
+            ref: "refs/heads/gh-readonly-queue/main/pr-7-0123",
+            event: "merge_group",
+            lintBundle: "standards"
+        )
+        let full = try ContinuousIntegration.Plan(
+            forcedTier: "full",
+            ref: "refs/heads/feature",
+            event: "push",
+            lintBundle: "standards"
+        )
+        #expect(mergeGroup.tier == .full)
+        #expect(mergeGroup.legs == full.legs)
+        #expect(mergeGroup.gating == full.gating)
+    }
+
+    /// A merge group cannot narrow its own verification: a `[ci build]`
+    /// head message and a no-work event diff both stay promoted, and the
+    /// one wider tier stays wider.
+    @Test
+    func mergeGroupPromotionCannotBeNarrowed() throws {
+        #expect(
+            try ContinuousIntegration.Plan(
+                ref: "refs/heads/gh-readonly-queue/main/pr-7-0123",
+                headMessage: "wip [ci build]",
+                event: "merge_group",
+                lintBundle: "standards"
+            ).tier == .full
+        )
+        let noWork = try ContinuousIntegration.Plan(
+            ref: "refs/heads/gh-readonly-queue/main/pr-7-0123",
+            event: "merge_group",
+            lintBundle: "standards",
+            packageContentChanged: false
+        )
+        #expect(noWork.packageContentChanged)
+        #expect(noWork.legs.contains { $0.gating && $0.buildLeg })
+        #expect(
+            try ContinuousIntegration.Plan(
+                forcedTier: "exhaustive",
+                ref: "refs/heads/gh-readonly-queue/main/pr-7-0123",
+                event: "merge_group",
+                lintBundle: "standards"
+            ).tier == .exhaustive
+        )
+    }
+
     @Test
     func commitTokensSteerTier() throws {
         #expect(
